@@ -1,0 +1,104 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+parameters:
+  - name: packageVersion
+    type: string
+    default: ''
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  BuildConfiguration: Release
+
+stages:
+  - stage: CI
+    displayName: 'CI — Build & Pack'
+    jobs:
+      - job: Build
+        displayName: 'Restore, Build, Pack'
+        steps:
+          - task: UseDotNet@2
+            displayName: 'Use .NET 9 SDK'
+            inputs:
+              packageType: sdk
+              version: '9.0.x'
+
+          - task: NuGetAuthenticate@1
+            displayName: 'Authenticate NuGet'
+
+          - script: |
+              set -euo pipefail
+              dotnet restore crumbs-stock.sln
+            displayName: 'Restore'
+
+          - script: |
+              dotnet build crumbs-stock.sln -c $(BuildConfiguration) --no-restore
+            displayName: 'Build'
+
+          - script: |
+              set -euo pipefail
+              VERSION="${{ parameters.packageVersion }}"
+              if [ -z "$VERSION" ]; then
+                VERSION="0.1.$(Build.BuildId)-ci"
+              fi
+              dotnet pack crumbs.stock/crumbs.stock.csproj \
+                -c $(BuildConfiguration) \
+                --no-build \
+                -p:PackageVersion="$VERSION" \
+                -o $(Build.ArtifactStagingDirectory)
+            displayName: 'Pack'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish artifact'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'nuget-packages'
+
+  - stage: CD
+    displayName: 'CD — Publish to Feed'
+    dependsOn: CI
+    condition: |
+      and(
+        succeeded(),
+        eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+        ne('${{ parameters.packageVersion }}', '')
+      )
+    jobs:
+      - deployment: Publish
+        displayName: 'Push to crumbs-private'
+        environment: 'crumbs-packages'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: nuget-packages
+
+                - task: UseDotNet@2
+                  displayName: 'Use .NET 9 SDK'
+                  inputs:
+                    packageType: sdk
+                    version: '9.0.x'
+
+                - task: NuGetAuthenticate@1
+                  displayName: 'Authenticate NuGet'
+
+                - script: |
+                    set -euo pipefail
+                    FEED_URL="https://pkgs.dev.azure.com/crumbssoft/crumbs/_packaging/crumbs-private/nuget/v3/index.json"
+                    for pkg in "$(Pipeline.Workspace)/nuget-packages"/*.nupkg; do
+                      dotnet nuget push "$pkg" \
+                        --source "$FEED_URL" \
+                        --api-key AzureArtifacts \
+                        --skip-duplicate
+                    done
+                  displayName: 'Push to crumbs-private'
