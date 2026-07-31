@@ -27,10 +27,10 @@ stages:
         displayName: 'Restore, Build, Pack'
         steps:
           - task: UseDotNet@2
-            displayName: 'Use .NET 9 SDK'
+            displayName: 'Use .NET 10 SDK'
             inputs:
               packageType: sdk
-              version: '9.0.x'
+              version: '10.0.x'
 
           - task: NuGetAuthenticate@1
             displayName: 'Authenticate NuGet'
@@ -84,10 +84,10 @@ stages:
                   artifact: nuget-packages
 
                 - task: UseDotNet@2
-                  displayName: 'Use .NET 9 SDK'
+                  displayName: 'Use .NET 10 SDK'
                   inputs:
                     packageType: sdk
-                    version: '9.0.x'
+                    version: '10.0.x'
 
                 - task: NuGetAuthenticate@1
                   displayName: 'Authenticate NuGet'
