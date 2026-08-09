@@ -26,9 +26,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Crumbs.Core.Entities" Version="1.2.0" />
-    <PackageReference Include="Crumbs.Core.RelationalContext" Version="1.2.0" />
-    <PackageReference Include="Crumbs.Common" Version="1.2.0" />
+    <PackageReference Include="Crumbs.Core.Entities" Version="1.*" />
+    <PackageReference Include="Crumbs.Core.RelationalContext" Version="1.*" />
+    <PackageReference Include="Crumbs.Common" Version="1.*" />
   </ItemGroup>
 
 </Project>
