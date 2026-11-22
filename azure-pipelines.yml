@@ -8,11 +8,6 @@ pr:
     include:
       - main
 
-parameters:
-  - name: packageVersion
-    type: string
-    default: ''
-
 pool:
   vmImage: ubuntu-latest
 
@@ -46,10 +41,7 @@ stages:
 
           - script: |
               set -euo pipefail
-              VERSION="${{ parameters.packageVersion }}"
-              if [ -z "$VERSION" ]; then
-                VERSION="0.1.$(Build.BuildId)-ci"
-              fi
+              VERSION="0.1.$(Build.BuildId)-ci"
               dotnet pack crumbs.stock/crumbs.stock.csproj \
                 -c $(BuildConfiguration) \
                 --no-build \
@@ -69,19 +61,23 @@ stages:
     condition: |
       and(
         succeeded(),
-        eq(variables['Build.SourceBranch'], 'refs/heads/main'),
-        ne('${{ parameters.packageVersion }}', '')
+        eq(variables['Build.SourceBranch'], 'refs/heads/main')
       )
     jobs:
       - deployment: Publish
-        displayName: 'Push to crumbs-private'
+        displayName: 'Build and publish release package'
+        variables:
+          - name: packageMajorMinor
+            value: '1.2'
+          - name: packagePatch
+            value: $[counter(variables['packageMajorMinor'], 2)]
         environment: 'crumbs-packages'
         strategy:
           runOnce:
             deploy:
               steps:
-                - download: current
-                  artifact: nuget-packages
+                - checkout: self
+                - download: none
 
                 - task: UseDotNet@2
                   displayName: 'Use .NET 10 SDK'
@@ -94,8 +90,40 @@ stages:
 
                 - script: |
                     set -euo pipefail
+                    VERSION="$(packageMajorMinor).$(packagePatch)"
+                    echo "##vso[task.setvariable variable=ResolvedPackageVersion]$VERSION"
+                  displayName: 'Resolve package version'
+
+                - script: |
+                    set -euo pipefail
+                    dotnet restore crumbs-stock.sln
+                  displayName: 'Restore release package'
+
+                - script: |
+                    dotnet build crumbs-stock.sln -c $(BuildConfiguration) --no-restore
+                  displayName: 'Build release package'
+
+                - script: |
+                    set -euo pipefail
+                    OUT_DIR="$(Build.ArtifactStagingDirectory)/release-packages"
+                    mkdir -p "$OUT_DIR"
+                    dotnet pack crumbs.stock/crumbs.stock.csproj \
+                      -c $(BuildConfiguration) \
+                      --no-build \
+                      -p:PackageVersion="$(ResolvedPackageVersion)" \
+                      -o "$OUT_DIR"
+                  displayName: 'Pack release package'
+
+                - script: |
+                    set -euo pipefail
                     FEED_URL="https://pkgs.dev.azure.com/crumbssoft/crumbs/_packaging/crumbs-private/nuget/v3/index.json"
-                    for pkg in "$(Pipeline.Workspace)/nuget-packages"/*.nupkg; do
+                    shopt -s nullglob
+                    packages=("$(Build.ArtifactStagingDirectory)/release-packages"/*.nupkg)
+                    if [ ${#packages[@]} -eq 0 ]; then
+                      echo "No NuGet packages found to publish."
+                      exit 1
+                    fi
+                    for pkg in "${packages[@]}"; do
                       dotnet nuget push "$pkg" \
                         --source "$FEED_URL" \
                         --api-key AzureArtifacts \
